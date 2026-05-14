@@ -6,6 +6,7 @@ import gspread
 from playwright.sync_api import sync_playwright
 import time
 import os
+import json
 
 # --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
 os.system("playwright install chromium")
@@ -28,9 +29,10 @@ if not check_password():
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 def conectar_sheets():
-    # Envolvemos en dict() para que Google lo lea sin problema
-    gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
-    # Cambia esto por el nombre exacto de tu Google Sheet
+    # Leemos el JSON crudo y lo convertimos a diccionario con la librería json
+    credenciales = json.loads(st.secrets["GOOGLE_CREDS"])
+    gc = gspread.service_account_from_dict(credenciales)
+    
     sh = gc.open("Matriz Estrados") 
     return sh.get_worksheet(0)
 
