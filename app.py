@@ -50,7 +50,16 @@ def conectar_sheets():
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
 def consultar_pjf(folio):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # --- EL AJUSTE ESTÁ EN ESTA LÍNEA ---
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox", 
+                "--disable-dev-shm-usage", 
+                "--disable-gpu"
+            ]
+        )
+        # ------------------------------------
         context = browser.new_context()
         page = context.new_page()
         
@@ -59,7 +68,7 @@ def consultar_pjf(folio):
             page.goto("https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda")
             
             # Ingresar el folio (Ajustar selectores según el portal)
-            page.fill("input#txtFolio", folio) # Selector de ejemplo
+            page.fill("input#txtFolio", folio) 
             page.click("button#btnConsultar")
             time.sleep(3) # Espera a que cargue la info
             
@@ -76,7 +85,6 @@ def consultar_pjf(folio):
         except Exception as e:
             browser.close()
             return f"Error: {str(e)}", "N/A", None
-
 # --- INTERFAZ ---
 st.sidebar.title("LegalHub Navigator")
 menu = st.sidebar.radio("Ir a:", ["Carga de Acuses", "Monitor de Estrados"])
