@@ -69,7 +69,7 @@ def consultar_pjf(folio):
             page.goto("https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda")
             
             # Ingresar el folio
-            page.fill("input#folio", folio) 
+            page.fill("input#numFolio", folio) 
             page.locator("button:has-text('Consultar')").click()
             
            # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
