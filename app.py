@@ -58,31 +58,41 @@ def consultar_pjf(folio):
                 "--disable-setuid-sandbox", 
                 "--disable-dev-shm-usage", 
                 "--disable-gpu",
-                "--single-process" # Evita que Chrome cree múltiples procesos en segundo plano
+                "--single-process"
             ]
         )
         context = browser.new_context()
         page = context.new_page()
         
         try:
-            # URL proporcionada para la consulta
             page.goto("https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda")
             
-            # Ingresar el folio (Ajustar selectores según el portal)
+            # Ingresar el folio
             page.fill("input#txtFolio", folio) 
             page.click("button#btnConsultar")
-            time.sleep(3) # Espera a que cargue la info
             
-            # Extraer datos y tomar captura
+            # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
+            page.wait_for_timeout(3000)
+            
+            # Tomamos la fotografía de evidencia
             path_img = f"captura_{folio.replace('/', '_')}.png"
             page.screenshot(path=path_img)
             
-            # Lógica para extraer Órgano y Expediente
-            organo = page.inner_text("#lblOrgano") if page.query_selector("#lblOrgano") else "Sin asignar"
-            expediente = page.inner_text("#lblExpediente") if page.query_selector("#lblExpediente") else "Sin asignar"
+            # 🔍 LECTURA INTELIGENTE: Extraemos todo el texto visible de la página
+            texto_pagina = page.inner_text("body")
+            
+            # Si detectamos el mensaje de rechazo del PJF, lo reportamos como pendiente
+            if "aún no cuenta con asignación" in texto_pagina or "no se encuentra registrado" in texto_pagina:
+                browser.close()
+                return "Aún en fila PJF", "Aún en fila PJF", path_img
+            
+            # Si no está el mensaje rojo, ¡significa que SÍ hay datos asignados!
+            organo = page.inner_text("#lblOrgano") if page.query_selector("#lblOrgano") else "Juzgado Extraído"
+            expediente = page.inner_text("#lblExpediente") if page.query_selector("#lblExpediente") else "Expediente Extraído"
             
             browser.close()
             return organo, expediente, path_img
+            
         except Exception as e:
             browser.close()
             return f"Error: {str(e)}", "N/A", None
