@@ -34,7 +34,8 @@ def conectar_sheets():
     gc = gspread.service_account_from_dict(credenciales)
     
     # Es mucho más seguro abrirlo directamente por su URL
-    sh = gc.open_by_url("https://docs.google.com/spreadsheets/d/1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk/edit?gid=0#gid=0") 
+    # Usar la llave directa nunca falla
+    sh = gc.open_by_key("1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk")
     return sh.get_worksheet(0)
 
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
