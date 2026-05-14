@@ -70,7 +70,7 @@ def consultar_pjf(folio):
             
             # Ingresar el folio
             page.fill("input#numFolio", folio) 
-            page.locator("button:has-text('Consultar')").click()
+            page.click("button#btnBuscar")
             
            # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
             page.wait_for_timeout(3000)
