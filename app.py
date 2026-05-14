@@ -51,16 +51,16 @@ def conectar_sheets():
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
 def consultar_pjf(folio):
     with sync_playwright() as p:
-        # --- EL AJUSTE ESTÁ EN ESTA LÍNEA ---
         browser = p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox", 
+                "--disable-setuid-sandbox", 
                 "--disable-dev-shm-usage", 
-                "--disable-gpu"
+                "--disable-gpu",
+                "--single-process" # Evita que Chrome cree múltiples procesos en segundo plano
             ]
         )
-        # ------------------------------------
         context = browser.new_context()
         page = context.new_page()
         
