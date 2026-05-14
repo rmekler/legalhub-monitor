@@ -176,22 +176,62 @@ if menu == "Carga de Acuses":
                 ])
             st.success("✅ Registros añadidos a la Matriz con Nombres e Iniciales.")
 
-elif menu == "Monitor de Estrados":
-    st.header("⚖️ Seguimiento en tiempo real")
-    if st.button("🚀 Iniciar Monitoreo Diario"):
+if menu == "Monitor de Estrados":
+    st.header("🔍 Monitor de Estrados PJF")
+    
+    if st.button("🚀 Iniciar Monitoreo Diario", type="primary"):
         ws = conectar_sheets()
+        # Leemos toda la matriz
         datos = pd.DataFrame(ws.get_all_records())
         
-        for index, row in datos.iterrows():
-            if row['Estatus'] == "Pendiente":
-                st.write(f"Consultando Folio: {row['Folio']}...")
-                organo, exp, img = consultar_pjf(row['Folio'])
-                
-                # Actualizar el Sheet si hubo cambios
-                if exp != "Sin asignar":
-                    # (Lógica para actualizar celda en gspread)
-                    st.success(f"¡Asignación encontrada para {row['Folio']}!")
-                    # Aquí enviarías a Telegram usando st.secrets["TELEGRAM_TOKEN"]
+        if datos.empty:
+            st.info("No hay datos en la matriz para monitorear.")
+        else:
+            cambios_realizados = 0
+            
+            for index, row in datos.iterrows():
+                if row['Estatus'] == "Pendiente":
+                    st.write(f"Consultando Folio: {row['Folio']} ({row['Promovente']})...")
+                    
+                    organo, exp, img = consultar_pjf(row['Folio'])
+                    
+                    # ESCENARIO 1: Sigue en fila
+                    if organo == "Aún en fila PJF":
+                        st.warning(f"⏳ Folio {row['Folio']}: Sigue en fila de espera del PJF.")
+                        
+                    # ESCENARIO 2: Error del navegador o de la página
+                    elif "Error" in organo:
+                        st.error(f"❌ Error al consultar {row['Folio']}: {organo}")
+                        
+                    # ESCENARIO 3: ¡Éxito! El PJF asignó el expediente
+                    else:
+                        st.success(f"🎉 ¡Asignación encontrada para {row['Folio']}! {organo} - {exp}")
+                        
+                        # Calculamos la fila exacta en Google Sheets (índice Pandas + 2)
+                        fila_sheet = index + 2 
+                        
+                        # Actualizamos las celdas directamente (Columnas 5, 6 y 7 de tu CSV)
+                        ws.update_cell(fila_sheet, 5, organo)      # Órgano Jurisdiccional
+                        ws.update_cell(fila_sheet, 6, exp)         # Número de Expediente
+                        ws.update_cell(fila_sheet, 7, "Asignado")  # Estatus
+                        
+                        cambios_realizados += 1
+                        
+                        # Enviamos la alerta a tu celular vía Telegram
+                        mensaje_tg = (
+                            f"🚨 NUEVA ASIGNACIÓN PJF 🚨\n\n"
+                            f"👤 Promovente: {row['Promovente']}\n"
+                            f"📄 Folio: {row['Folio']}\n"
+                            f"🏛️ Órgano: {organo}\n"
+                            f"📁 Expediente: {exp}"
+                        )
+                        enviar_telegram(mensaje_tg)
+            
+            if cambios_realizados > 0:
+                st.balloons() # Celebramos si hubo asignaciones
+                st.success(f"✅ Monitoreo finalizado. Se actualizaron {cambios_realizados} expedientes en la matriz.")
+            else:
+                st.info("✅ Monitoreo finalizado. No hubo nuevas asignaciones hoy.")
 def enviar_telegram(mensaje):
     try:
         token = st.secrets["TELEGRAM_TOKEN"]
