@@ -81,6 +81,19 @@ def consultar_pjf(folio):
 st.sidebar.title("LegalHub Navigator")
 menu = st.sidebar.radio("Ir a:", ["Carga de Acuses", "Monitor de Estrados"])
 
+# --- GENERADOR DE INICIALES (Añádelo justo arriba del if menu...) ---
+def generar_iniciales(nombre):
+    if nombre == "No encontrado" or not nombre:
+        return ""
+    # Palabras que no queremos que generen inicial (ej. "de la Cruz")
+    excluir = ['de', 'del', 'la', 'las', 'el', 'los', 'y', 'en', 'para', 'a']
+    # Limpiamos símbolos extraños y dividimos en palabras
+    palabras = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]', '', nombre).split()
+    iniciales = [p[0].upper() for p in palabras if p.lower() not in excluir]
+    return "".join(iniciales)
+
+# ------------------------------------------------------------------
+
 if menu == "Carga de Acuses":
     st.header("📂 Carga de nuevos expedientes")
     files = st.file_uploader("Sube los acuses en PDF", accept_multiple_files=True, type=['pdf'])
@@ -90,15 +103,58 @@ if menu == "Carga de Acuses":
         for f in files:
             reader = PdfReader(f)
             texto = reader.pages[0].extract_text()
-            folio = re.search(r'\d{8}/\d{4}', texto).group(0) if re.search(r'\d{8}/\d{4}', texto) else "No encontrado"
-            nuevos_datos.append({"Folio": folio, "Estatus": "Pendiente"})
+            
+            # 1. Extraer Folio
+            match_folio = re.search(r'\d{8}/\d{4}', texto)
+            folio = match_folio.group(0) if match_folio else "No encontrado"
+            
+            # 2. Batería exhaustiva para extraer el Nombre
+            patrones_nombre = [
+                r"(?i)Promovente\s*:\s*([^\n]+)",
+                r"(?i)Quejoso\s*:\s*([^\n]+)",
+                r"(?i)Actor\s*:\s*([^\n]+)",
+                r"(?i)Nombre\s*:\s*([^\n]+)",
+                r"(?i)Usuario\s*:\s*([^\n]+)"
+            ]
+            
+            promovente = "No encontrado"
+            for patron in patrones_nombre:
+                match = re.search(patron, texto)
+                if match:
+                    # Limpiamos espacios al inicio y al final
+                    promovente = match.group(1).strip()
+                    break
+            
+            # 3. Calcular Iniciales
+            iniciales = generar_iniciales(promovente)
+            
+            # Empaquetamos todo respetando las 7 columnas de tu CSV
+            nuevos_datos.append({
+                "Folio": folio, 
+                "Promovente": promovente,
+                "Iniciales": iniciales,
+                "Tipo de Monitoreo": "Diario", # Por defecto
+                "Órgano": "Sin asignar",
+                "Expediente": "Sin asignar",
+                "Estatus": "Pendiente"
+            })
         
-        st.write("Datos extraídos:", pd.DataFrame(nuevos_datos))
+        st.write("Datos extraídos listos para revisar:", pd.DataFrame(nuevos_datos))
+        
         if st.button("Guardar en Google Sheets"):
             ws = conectar_sheets()
             for d in nuevos_datos:
-                ws.append_row([d['Folio'], "", "", "", "Sin asignar", "Sin asignar", "Pendiente"])
-            st.success("Registros añadidos a la Matriz.")
+                # Escribe la fila con los datos exactos en orden
+                ws.append_row([
+                    d['Folio'], 
+                    d['Promovente'], 
+                    d['Iniciales'], 
+                    d['Tipo de Monitoreo'], 
+                    d['Órgano'], 
+                    d['Expediente'], 
+                    d['Estatus']
+                ])
+            st.success("✅ Registros añadidos a la Matriz con Nombres e Iniciales.")
 
 elif menu == "Monitor de Estrados":
     st.header("⚖️ Seguimiento en tiempo real")
