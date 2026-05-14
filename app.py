@@ -6,6 +6,7 @@ import gspread
 from playwright.sync_api import sync_playwright
 import time
 import os
+os.system("playwright install chromium")
 import json
 from google.oauth2 import service_account
 
