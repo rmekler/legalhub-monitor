@@ -72,22 +72,23 @@ def consultar_pjf(folio):
             page.fill("input#txtFolio", folio) 
             page.click("button#btnConsultar")
             
-            # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
+           # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
             page.wait_for_timeout(3000)
             
             # Tomamos la fotografía de evidencia
             path_img = f"captura_{folio.replace('/', '_')}.png"
             page.screenshot(path=path_img)
             
-            # 🔍 LECTURA INTELIGENTE: Extraemos todo el texto visible de la página
-            texto_pagina = page.inner_text("body")
+            # 🔍 LECTURA INTELIGENTE (VERSIÓN BLINDADA)
+            # Extraemos TODO el código fuente (HTML) de la página y lo pasamos a minúsculas
+            texto_pagina = page.content().lower() 
             
-            # Si detectamos el mensaje de rechazo del PJF, lo reportamos como pendiente
-            if "aún no cuenta con asignación" in texto_pagina or "no se encuentra registrado" in texto_pagina:
+            # Buscamos fragmentos clave sin depender de acentos perfectos
+            if "no cuenta con" in texto_pagina or "asignaci" in texto_pagina or "intentar" in texto_pagina:
                 browser.close()
                 return "Aún en fila PJF", "Aún en fila PJF", path_img
             
-            # Si no está el mensaje rojo, ¡significa que SÍ hay datos asignados!
+            # Si no está el mensaje rojo, procedemos a buscar los selectores reales
             organo = page.inner_text("#lblOrgano") if page.query_selector("#lblOrgano") else "Juzgado Extraído"
             expediente = page.inner_text("#lblExpediente") if page.query_selector("#lblExpediente") else "Expediente Extraído"
             
