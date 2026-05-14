@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from pypdf import PdfReader
 import re
+import gspread
+from playwright.sync_api import sync_playwright
+import time
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 def check_password():
@@ -11,7 +14,6 @@ def check_password():
             del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
-
     if "password_correct" not in st.session_state:
         st.text_input("Contraseña de acceso", type="password", on_change=password_guessed, key="password")
         return False
@@ -20,13 +22,43 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- LÓGICA DE PROCESAMIENTO ---
-def extraer_datos_pdf(file):
-    reader = PdfReader(file)
-    texto = reader.pages[0].extract_text()
-    # Regex para encontrar folio (ej. 12345678/2026)
-    folio = re.search(r'\d{8}/\d{4}', texto).group(0) if re.search(r'\d{8}/\d{4}', texto) else "No encontrado"
-    return {"Folio": folio, "Texto": texto}
+# --- CONEXIÓN A GOOGLE SHEETS ---
+def conectar_sheets():
+    # Usa los secretos configurados en Streamlit Cloud
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    # Cambia esto por el nombre exacto de tu Google Sheet
+    sh = gc.open("Matriz Estrados") 
+    return sh.get_worksheet(0)
+
+# --- LÓGICA DE PLAYWRIGHT (PJF) ---
+def consultar_pjf(folio):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+        
+        try:
+            # URL proporcionada para la consulta
+            page.goto("https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda")
+            
+            # Ingresar el folio (Ajustar selectores según el portal)
+            page.fill("input#txtFolio", folio) # Selector de ejemplo
+            page.click("button#btnConsultar")
+            time.sleep(3) # Espera a que cargue la info
+            
+            # Extraer datos y tomar captura
+            path_img = f"captura_{folio.replace('/', '_')}.png"
+            page.screenshot(path=path_img)
+            
+            # Lógica para extraer Órgano y Expediente
+            organo = page.inner_text("#lblOrgano") if page.query_selector("#lblOrgano") else "Sin asignar"
+            expediente = page.inner_text("#lblExpediente") if page.query_selector("#lblExpediente") else "Sin asignar"
+            
+            browser.close()
+            return organo, expediente, path_img
+        except Exception as e:
+            browser.close()
+            return f"Error: {str(e)}", "N/A", None
 
 # --- INTERFAZ ---
 st.sidebar.title("LegalHub Navigator")
@@ -39,22 +71,31 @@ if menu == "Carga de Acuses":
     if files:
         nuevos_datos = []
         for f in files:
-            datos = extraer_datos_pdf(f)
-            nuevos_datos.append(datos)
+            reader = PdfReader(f)
+            texto = reader.pages[0].extract_text()
+            folio = re.search(r'\d{8}/\d{4}', texto).group(0) if re.search(r'\d{8}/\d{4}', texto) else "No encontrado"
+            nuevos_datos.append({"Folio": folio, "Estatus": "Pendiente"})
         
-        df_nuevos = pd.DataFrame(nuevos_datos)
-        st.write("Vista previa de carga:", df_nuevos)
-        if st.button("Actualizar Matriz en Google Sheets"):
-            # Aquí iría la conexión a gspread
-            st.success("Matriz actualizada correctamente.")
+        st.write("Datos extraídos:", pd.DataFrame(nuevos_datos))
+        if st.button("Guardar en Google Sheets"):
+            ws = conectar_sheets()
+            for d in nuevos_datos:
+                ws.append_row([d['Folio'], "", "", "", "Sin asignar", "Sin asignar", "Pendiente"])
+            st.success("Registros añadidos a la Matriz.")
 
 elif menu == "Monitor de Estrados":
-    st.header("⚖️ Seguimiento de Expedientes")
-    st.info("Esta sección consultará el portal del PJF y enviará capturas a Telegram.")
-    
+    st.header("⚖️ Seguimiento en tiempo real")
     if st.button("🚀 Iniciar Monitoreo Diario"):
-        # Aquí ejecutamos la lógica de Playwright que revisa el portal:
-        # https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda
-        st.write("Consultando portal del PJF...")
-        # Lógica de Playwright...
-        st.success("Monitoreo completado. Reportes enviados a Telegram.")
+        ws = conectar_sheets()
+        datos = pd.DataFrame(ws.get_all_records())
+        
+        for index, row in datos.iterrows():
+            if row['Estatus'] == "Pendiente":
+                st.write(f"Consultando Folio: {row['Folio']}...")
+                organo, exp, img = consultar_pjf(row['Folio'])
+                
+                # Actualizar el Sheet si hubo cambios
+                if exp != "Sin asignar":
+                    # (Lógica para actualizar celda en gspread)
+                    st.success(f"¡Asignación encontrada para {row['Folio']}!")
+                    # Aquí enviarías a Telegram usando st.secrets["TELEGRAM_TOKEN"]
