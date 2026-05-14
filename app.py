@@ -9,6 +9,7 @@ import os
 os.system("playwright install chromium")
 import json
 from google.oauth2 import service_account
+import requests
 
 # --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
 os.system("playwright install chromium")
@@ -191,3 +192,12 @@ elif menu == "Monitor de Estrados":
                     # (Lógica para actualizar celda en gspread)
                     st.success(f"¡Asignación encontrada para {row['Folio']}!")
                     # Aquí enviarías a Telegram usando st.secrets["TELEGRAM_TOKEN"]
+def enviar_telegram(mensaje):
+    try:
+        token = st.secrets["TELEGRAM_TOKEN"]
+        chat_id = st.secrets["TELEGRAM_CHAT_ID"]
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": mensaje}
+        requests.post(url, json=payload)
+    except Exception as e:
+        st.error(f"⚠️ No se pudo enviar el Telegram: {e}")
