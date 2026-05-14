@@ -29,15 +29,22 @@ if not check_password():
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 def conectar_sheets():
-    # Leemos el JSON crudo y lo convertimos a diccionario con la librería json
+    # 1. Cargamos el JSON
     credenciales = json.loads(st.secrets["GOOGLE_CREDS"])
-    gc = gspread.service_account_from_dict(credenciales)
     
-    # Es mucho más seguro abrirlo directamente por su URL
-    # Usar la llave directa nunca falla
+    # 2. Le decimos explícitamente al robot qué permisos usar
+    mis_permisos = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    # 3. Nos conectamos aplicando los permisos
+    gc = gspread.service_account_from_dict(credenciales, scopes=mis_permisos)
+    
+    # 4. Abrimos el archivo
     sh = gc.open_by_key("1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk")
     return sh.get_worksheet(0)
-
+    
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
 def consultar_pjf(folio):
     with sync_playwright() as p:
