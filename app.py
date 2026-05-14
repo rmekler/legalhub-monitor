@@ -10,9 +10,10 @@ from PyPDF2 import PdfReader
 from google.oauth2 import service_account
 
 # INSTALACIÓN AUTOMÁTICA DEL NAVEGADOR
-if not os.path.exists("/home/adminuser/.cache/ms-playwright"):
-    os.system("playwright install chromium")
-
+# Cambiamos 'adminuser' por 'appuser' que es la ruta real que vemos en tus logs
+if not os.path.exists("/home/appuser/.cache/ms-playwright"):
+    with st.spinner("Configurando navegador por primera vez..."):
+        os.system("playwright install chromium")
 # --- FUNCIONES DE APOYO ---
 
 def enviar_telegram(mensaje):
