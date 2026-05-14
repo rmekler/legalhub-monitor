@@ -5,6 +5,10 @@ import re
 import gspread
 from playwright.sync_api import sync_playwright
 import time
+import os
+
+# --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
+os.system("playwright install chromium")
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 def check_password():
