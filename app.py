@@ -28,8 +28,8 @@ if not check_password():
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 def conectar_sheets():
-    # Usa los secretos configurados en Streamlit Cloud
-    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    # Envolvemos en dict() para que Google lo lea sin problema
+    gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
     # Cambia esto por el nombre exacto de tu Google Sheet
     sh = gc.open("Matriz Estrados") 
     return sh.get_worksheet(0)
