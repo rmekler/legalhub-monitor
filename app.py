@@ -11,9 +11,7 @@ from google.oauth2 import service_account
 
 # INSTALACIÓN AUTOMÁTICA DEL NAVEGADOR
 # Cambiamos 'adminuser' por 'appuser' que es la ruta real que vemos en tus logs
-if not os.path.exists("/home/appuser/.cache/ms-playwright"):
-    with st.spinner("Instalando motor de búsqueda (solo la primera vez)..."):
-        os.system("playwright install chromium")
+os.system("playwright install chromium")
 
 # Agregamos este "latido" para ver algo en el log
 print(">>> DEBUG: El script ha iniciado correctamente")
