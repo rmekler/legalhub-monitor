@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-from pypdf import PdfReader
 import re
-import gspread
-from playwright.sync_api import sync_playwright
-import time
-import os
-os.system("playwright install chromium")
 import json
-from google.oauth2 import service_account
+import gspread
 import requests
+import time
+from playwright.sync_api import sync_playwright
+from PyPDF2 import PdfReader
+from google.oauth2 import service_account
 
 # --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
 os.system("playwright install chromium")
@@ -71,27 +69,29 @@ def consultar_pjf(folio):
             page.fill("input#numFolio", folio)
             page.click("button#btnBuscar")
             
-            # ESPERA CRÍTICA: Esperamos a que aparezca el label del Órgano
-            try:
-                page.wait_for_selector("text='Órgano Jurisdiccional:'", timeout=15000)
-            except:
-                # Si no aparece, tomamos captura para ver qué pasó (el cuadro rojo de "No asignado")
-                path_img = f"captura_{folio.replace('/', '_')}.png"
-                page.screenshot(path=path_img)
-                return "Aún en fila PJF", "Sin asignar", "Sin asignar", path_img
+            # Esperamos a que la página reaccione (3 seg de cortesía)
+            page.wait_for_timeout(3000)
+            
+            # Verificamos si salió el mensaje de "Aún no cuenta con asignación"
+            contenido = page.content().lower()
+            if "asignaci" in contenido and "no cuenta" in contenido:
+                browser.close()
+                return "Aún en fila PJF", "Sin asignar", "Sin asignar", None
 
-            # EXTRAER INFORMACIÓN REAL
-            # Buscamos el texto que sigue después de cada etiqueta
-            def get_val(label):
+            # Si pasó el filtro, extraemos con selectores de texto (más robustos)
+            def extraer(label):
                 try:
-                    # Buscamos el elemento que contiene el label y extraemos el texto del contenedor
-                    texto_completo = page.locator(f"div:has-text('{label}')").first.inner_text()
-                    return texto_completo.replace(label, "").strip()
-                except: return "Sin asignar"
+                    # Buscamos el texto que está justo después de la etiqueta
+                    elemento = page.locator(f"text={label}").first
+                    # El dato suele estar en el elemento siguiente o dentro del mismo contenedor
+                    return page.evaluate(f"el => el.parentElement.innerText.replace('{label}', '').strip()", 
+                                       elemento.element_handle())
+                except:
+                    return "Sin asignar"
 
-            organo = get_val("Órgano Jurisdiccional:")
-            asunto = get_val("Tipo de Asunto:")
-            expediente = get_val("Número de Expediente:")
+            organo = extraer("Órgano Jurisdiccional:")
+            asunto = extraer("Tipo de Asunto:")
+            expediente = extraer("Número de Expediente:")
             
             path_img = f"captura_{folio.replace('/', '_')}.png"
             page.screenshot(path=path_img)
@@ -99,7 +99,7 @@ def consultar_pjf(folio):
             browser.close()
             return organo, asunto, expediente, path_img
         except Exception as e:
-            browser.close()
+            if browser: browser.close()
             return f"Error: {str(e)}", "N/A", "N/A", None
 # --- INTERFAZ ---
 st.sidebar.title("LegalHub Navigator")
@@ -185,55 +185,43 @@ if menu == "Monitor de Estrados":
     
     if st.button("🚀 Iniciar Monitoreo Diario", type="primary"):
         ws = conectar_sheets()
-        # Leemos toda la matriz
         datos = pd.DataFrame(ws.get_all_records())
         
         if datos.empty:
-            st.info("No hay datos en la matriz para monitorear.")
+            st.info("No hay datos en la matriz.")
         else:
-            cambios_realizados = 0
-            
+            cambios_totales = 0
             for index, row in datos.iterrows():
-                # Monitorea si está Pendiente o si le faltan datos básicos
-                if row['Estatus'] == "Pendiente" or row['Órgano Jurisdiccional'] == "Sin asignar":
-                    st.write(f"🔍 Consultando Folio: {row['Folio']} ({row['Promovente']})...")
+                # Revisamos si falta Órgano o Expediente
+                if row['Estatus'] == "Pendiente" or row['Órgano Jurisdiccional'] == "Sin asignar" or row['Número de Expediente'] == "Sin asignar":
+                    st.write(f"🔍 Revisando: {row['Folio']}...")
                     
-                    # Ahora recibimos 4 valores de la nueva función consultar_pjf
-                    organo, asunto, expediente, img = consultar_pjf(row['Folio'])
+                    organo, asunto, exp, img = consultar_pjf(row['Folio'])
+                    fila = index + 2
+                    actualizo_algo = False
                     
-                    fila_sheet = index + 2
-                    hubo_cambio = False
+                    # Actualizar Órgano (Col 5)
+                    if organo not in ["Sin asignar", "Aún en fila PJF", "N/A"] and organo != row['Órgano Jurisdiccional']:
+                        ws.update_cell(fila, 5, organo)
+                        actualizo_algo = True
                     
-                    # 1. Actualizar Órgano (Columna 5)
-                    if organo != "Sin asignar" and organo != "Aún en fila PJF" and organo != row['Órgano Jurisdiccional']:
-                        ws.update_cell(fila_sheet, 5, organo)
-                        hubo_cambio = True
+                    # Actualizar Expediente (Col 6)
+                    if exp not in ["Sin asignar", "N/A"] and exp != row['Número de Expediente']:
+                        ws.update_cell(fila, 6, exp)
+                        actualizo_algo = True
                     
-                    # 2. Actualizar Expediente (Columna 6)
-                    if expediente != "Sin asignar" and expediente != "Aún en fila PJF" and expediente != row['Número de Expediente']:
-                        ws.update_cell(fila_sheet, 6, expediente)
-                        hubo_cambio = True
+                    # Determinar si ya terminamos con este folio
+                    # Solo se marca "Asignado" si ya tenemos los dos datos clave
+                    if organo != "Sin asignar" and organo != "Aún en fila PJF" and exp != "Sin asignar":
+                        ws.update_cell(fila, 7, "Asignado")
                     
-                    # 3. Determinar Estatus Final (Columna 7)
-                    if organo != "Sin asignar" and organo != "Aún en fila PJF" and expediente != "Sin asignar":
-                        ws.update_cell(fila_sheet, 7, "Asignado")
-                    else:
-                        ws.update_cell(fila_sheet, 7, "Pendiente")
-
-                    # Notificación y Feedback
-                    if hubo_cambio:
-                        st.success(f"✅ ¡Datos actualizados para {row['Folio']}!")
-                        mensaje_tg = f"🚨 ACTUALIZACIÓN PJF\n👤 {row['Promovente']}\n🏛️ {organo}\n📁 Exp: {expediente}"
-                        enviar_telegram(mensaje_tg)
-                        cambios_realizados += 1
+                    if actualizo_algo:
+                        st.success(f"✅ ¡Nuevos datos para {row['Folio']}!")
+                        enviar_telegram(f"🚨 ACTUALIZACIÓN PJF\n👤 {row['Promovente']}\n🏛️ {organo}\n📁 Exp: {exp}")
+                        cambios_totales += 1
                     elif organo == "Aún en fila PJF":
-                        st.warning(f"⏳ {row['Folio']} sigue en fila de espera.")
-                    else:
-                        st.info(f"ℹ️ Sin información nueva para {row['Folio']}.")
+                        st.warning(f"⏳ {row['Folio']} sigue en fila.")
             
-            if cambios_realizados > 0:
+            if cambios_totales > 0:
                 st.balloons()
-            else:
-                st.info("✅ Monitoreo finalizado. No hubo nuevas asignaciones hoy.")
-    except Exception as e:
-        st.error(f"⚠️ No se pudo enviar el Telegram: {e}")
+            st.info("Terminó la revisión de la matriz.")
