@@ -1,6 +1,8 @@
 streamlit
 pandas
-pypdf
 gspread
+requests
 playwright
-pytest-playwright
+PyPDF2
+google-auth
+google-api-python-client
