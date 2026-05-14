@@ -33,7 +33,8 @@ def conectar_sheets():
     credenciales = json.loads(st.secrets["GOOGLE_CREDS"])
     gc = gspread.service_account_from_dict(credenciales)
     
-    sh = gc.open("Matriz Estrados") 
+    # Es mucho más seguro abrirlo directamente por su URL
+    sh = gc.open_by_url("https://docs.google.com/spreadsheets/d/1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk/edit?gid=0#gid=0") 
     return sh.get_worksheet(0)
 
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
