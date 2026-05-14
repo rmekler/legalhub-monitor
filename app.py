@@ -7,6 +7,7 @@ from playwright.sync_api import sync_playwright
 import time
 import os
 import json
+from google.oauth2 import service_account
 
 # --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
 os.system("playwright install chromium")
@@ -29,21 +30,22 @@ if not check_password():
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 def conectar_sheets():
-    # 1. Cargamos el JSON
-    credenciales = json.loads(st.secrets["GOOGLE_CREDS"])
+    # 1. Leemos el diccionario de los secrets (Asegúrate de que en secrets se llame GOOGLE_CREDS)
+    cred_dict = json.loads(st.secrets["GOOGLE_CREDS"])
     
-    # 2. Le decimos explícitamente al robot qué permisos usar
-    mis_permisos = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
+    # 2. Construimos las credenciales usando el método oficial de Google (Igual que en Nimbus)
+    creds_sheets = service_account.Credentials.from_service_account_info(
+        cred_dict, 
+        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    )
     
-    # 3. Nos conectamos aplicando los permisos
-    gc = gspread.service_account_from_dict(credenciales, scopes=mis_permisos)
+    # 3. Autorizamos al cliente de gspread
+    client = gspread.authorize(creds_sheets)
     
-    # 4. Abrimos el archivo
-    sh = gc.open_by_key("1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk")
-    return sh.get_worksheet(0)
+    # 4. Abrimos el archivo por su ID directo y seleccionamos la primera hoja
+    sheet = client.open_by_key('1ZP__a71alDwwjzVMF32LokjCzeS2AzilbEB48kVRjFk').sheet1
+    
+    return sheet
     
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
 def consultar_pjf(folio):
