@@ -14,6 +14,16 @@ import requests
 # --- DESCARGA AUTOMÁTICA DEL NAVEGADOR INVISIBLE ---
 os.system("playwright install chromium")
 
+def enviar_telegram(mensaje):
+    try:
+        token = st.secrets["TELEGRAM_TOKEN"]
+        chat_id = st.secrets["TELEGRAM_CHAT_ID"]
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": mensaje}
+        requests.post(url, json=payload)
+    except Exception as e:
+        st.error(f"⚠️ Error Telegram: {e}")
+        
 # --- CONFIGURACIÓN DE SEGURIDAD ---
 def check_password():
     def password_guessed():
@@ -52,52 +62,45 @@ def conectar_sheets():
 # --- LÓGICA DE PLAYWRIGHT (PJF) ---
 def consultar_pjf(folio):
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox", 
-                "--disable-setuid-sandbox", 
-                "--disable-dev-shm-usage", 
-                "--disable-gpu",
-                "--single-process"
-            ]
-        )
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu", "--single-process"])
         context = browser.new_context()
         page = context.new_page()
         
         try:
             page.goto("https://www.serviciosenlinea.pjf.gob.mx/juicioenlinea/Presentacion/VerDemanda")
-            
-            # Ingresar el folio
-            page.fill("input#numFolio", folio) 
+            page.fill("input#numFolio", folio)
             page.click("button#btnBuscar")
             
-           # ⏱️ Esperamos 3 segundos exactos para que el PJF cargue la respuesta
-            page.wait_for_timeout(3000)
+            # ESPERA CRÍTICA: Esperamos a que aparezca el label del Órgano
+            try:
+                page.wait_for_selector("text='Órgano Jurisdiccional:'", timeout=15000)
+            except:
+                # Si no aparece, tomamos captura para ver qué pasó (el cuadro rojo de "No asignado")
+                path_img = f"captura_{folio.replace('/', '_')}.png"
+                page.screenshot(path=path_img)
+                return "Aún en fila PJF", "Sin asignar", "Sin asignar", path_img
+
+            # EXTRAER INFORMACIÓN REAL
+            # Buscamos el texto que sigue después de cada etiqueta
+            def get_val(label):
+                try:
+                    # Buscamos el elemento que contiene el label y extraemos el texto del contenedor
+                    texto_completo = page.locator(f"div:has-text('{label}')").first.inner_text()
+                    return texto_completo.replace(label, "").strip()
+                except: return "Sin asignar"
+
+            organo = get_val("Órgano Jurisdiccional:")
+            asunto = get_val("Tipo de Asunto:")
+            expediente = get_val("Número de Expediente:")
             
-            # Tomamos la fotografía de evidencia
             path_img = f"captura_{folio.replace('/', '_')}.png"
             page.screenshot(path=path_img)
             
-            # 🔍 LECTURA INTELIGENTE (VERSIÓN BLINDADA)
-            # Extraemos TODO el código fuente (HTML) de la página y lo pasamos a minúsculas
-            texto_pagina = page.content().lower() 
-            
-            # Buscamos fragmentos clave sin depender de acentos perfectos
-            if "no cuenta con" in texto_pagina or "asignaci" in texto_pagina or "intentar" in texto_pagina:
-                browser.close()
-                return "Aún en fila PJF", "Aún en fila PJF", path_img
-            
-            # Si no está el mensaje rojo, procedemos a buscar los selectores reales
-            organo = page.inner_text("#lblOrgano") if page.query_selector("#lblOrgano") else "Juzgado Extraído"
-            expediente = page.inner_text("#lblExpediente") if page.query_selector("#lblExpediente") else "Expediente Extraído"
-            
             browser.close()
-            return organo, expediente, path_img
-            
+            return organo, asunto, expediente, path_img
         except Exception as e:
             browser.close()
-            return f"Error: {str(e)}", "N/A", None
+            return f"Error: {str(e)}", "N/A", "N/A", None
 # --- INTERFAZ ---
 st.sidebar.title("LegalHub Navigator")
 menu = st.sidebar.radio("Ir a:", ["Carga de Acuses", "Monitor de Estrados"])
@@ -191,54 +194,46 @@ if menu == "Monitor de Estrados":
             cambios_realizados = 0
             
             for index, row in datos.iterrows():
-                if row['Estatus'] == "Pendiente":
-                    st.write(f"Consultando Folio: {row['Folio']} ({row['Promovente']})...")
+                # Monitorea si está Pendiente o si le faltan datos básicos
+                if row['Estatus'] == "Pendiente" or row['Órgano Jurisdiccional'] == "Sin asignar":
+                    st.write(f"🔍 Consultando Folio: {row['Folio']} ({row['Promovente']})...")
                     
-                    organo, exp, img = consultar_pjf(row['Folio'])
+                    # Ahora recibimos 4 valores de la nueva función consultar_pjf
+                    organo, asunto, expediente, img = consultar_pjf(row['Folio'])
                     
-                    # ESCENARIO 1: Sigue en fila
-                    if organo == "Aún en fila PJF":
-                        st.warning(f"⏳ Folio {row['Folio']}: Sigue en fila de espera del PJF.")
-                        
-                    # ESCENARIO 2: Error del navegador o de la página
-                    elif "Error" in organo:
-                        st.error(f"❌ Error al consultar {row['Folio']}: {organo}")
-                        
-                    # ESCENARIO 3: ¡Éxito! El PJF asignó el expediente
+                    fila_sheet = index + 2
+                    hubo_cambio = False
+                    
+                    # 1. Actualizar Órgano (Columna 5)
+                    if organo != "Sin asignar" and organo != "Aún en fila PJF" and organo != row['Órgano Jurisdiccional']:
+                        ws.update_cell(fila_sheet, 5, organo)
+                        hubo_cambio = True
+                    
+                    # 2. Actualizar Expediente (Columna 6)
+                    if expediente != "Sin asignar" and expediente != "Aún en fila PJF" and expediente != row['Número de Expediente']:
+                        ws.update_cell(fila_sheet, 6, expediente)
+                        hubo_cambio = True
+                    
+                    # 3. Determinar Estatus Final (Columna 7)
+                    if organo != "Sin asignar" and organo != "Aún en fila PJF" and expediente != "Sin asignar":
+                        ws.update_cell(fila_sheet, 7, "Asignado")
                     else:
-                        st.success(f"🎉 ¡Asignación encontrada para {row['Folio']}! {organo} - {exp}")
-                        
-                        # Calculamos la fila exacta en Google Sheets (índice Pandas + 2)
-                        fila_sheet = index + 2 
-                        
-                        # Actualizamos las celdas directamente (Columnas 5, 6 y 7 de tu CSV)
-                        ws.update_cell(fila_sheet, 5, organo)      # Órgano Jurisdiccional
-                        ws.update_cell(fila_sheet, 6, exp)         # Número de Expediente
-                        ws.update_cell(fila_sheet, 7, "Asignado")  # Estatus
-                        
-                        cambios_realizados += 1
-                        
-                        # Enviamos la alerta a tu celular vía Telegram
-                        mensaje_tg = (
-                            f"🚨 NUEVA ASIGNACIÓN PJF 🚨\n\n"
-                            f"👤 Promovente: {row['Promovente']}\n"
-                            f"📄 Folio: {row['Folio']}\n"
-                            f"🏛️ Órgano: {organo}\n"
-                            f"📁 Expediente: {exp}"
-                        )
+                        ws.update_cell(fila_sheet, 7, "Pendiente")
+
+                    # Notificación y Feedback
+                    if hubo_cambio:
+                        st.success(f"✅ ¡Datos actualizados para {row['Folio']}!")
+                        mensaje_tg = f"🚨 ACTUALIZACIÓN PJF\n👤 {row['Promovente']}\n🏛️ {organo}\n📁 Exp: {expediente}"
                         enviar_telegram(mensaje_tg)
+                        cambios_realizados += 1
+                    elif organo == "Aún en fila PJF":
+                        st.warning(f"⏳ {row['Folio']} sigue en fila de espera.")
+                    else:
+                        st.info(f"ℹ️ Sin información nueva para {row['Folio']}.")
             
             if cambios_realizados > 0:
-                st.balloons() # Celebramos si hubo asignaciones
-                st.success(f"✅ Monitoreo finalizado. Se actualizaron {cambios_realizados} expedientes en la matriz.")
+                st.balloons()
             else:
                 st.info("✅ Monitoreo finalizado. No hubo nuevas asignaciones hoy.")
-def enviar_telegram(mensaje):
-    try:
-        token = st.secrets["TELEGRAM_TOKEN"]
-        chat_id = st.secrets["TELEGRAM_CHAT_ID"]
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": mensaje}
-        requests.post(url, json=payload)
     except Exception as e:
         st.error(f"⚠️ No se pudo enviar el Telegram: {e}")
